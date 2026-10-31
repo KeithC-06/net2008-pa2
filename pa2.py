@@ -93,3 +93,32 @@ def load_inventory(path):
         else:
             devices.append(Device.from_element(element))
     return root.get("site"), devices, skipped
+    
+    def load_policy(path):
+    """Read and validate the YAML policy with yaml.safe_load.
+
+    Returns a dict. An empty file gives an empty policy (all checks off).
+    Raises AuditError if the file is missing, invalid, or not a mapping.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        raise AuditError(f"{path}: cannot read policy ({error})") from error
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise AuditError(f"{path}: policy must be a mapping")
+    min_os = data.get("min_os")
+    if min_os is not None:
+        if not isinstance(min_os, dict):
+            raise AuditError(f"{path}: min_os must be a mapping")
+        for role, version in min_os.items():
+            try:
+                parse_version(version)
+            except ValueError as error:
+                raise AuditError(f"{path}: min_os for {role}: {error}") from error
+    limit = data.get("max_down_interfaces")
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
+        raise AuditError(f"{path}: max_down_interfaces must be a whole number")
+    return data
