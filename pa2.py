@@ -122,3 +122,56 @@ def load_inventory(path):
     if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
         raise AuditError(f"{path}: max_down_interfaces must be a whole number")
     return data
+
+    def check_device(device, policy):
+    """Return the list of violation dicts for one device."""
+    found = []
+    min_os = policy.get("min_os")
+    if min_os is not None:
+        if device.role not in min_os:
+            found.append({"device": device.device_id, "type": "unknown_role",
+                          "role": device.role})
+        else:
+            required = str(min_os[device.role])
+            try:
+                outdated = compare_versions(
+                    parse_version(device.os_version), parse_version(required)) < 0
+            except ValueError:
+                outdated = True  # an unreadable OS version cannot be shown current
+            if outdated:
+                found.append({"device": device.device_id, "type": "os_outdated",
+                              "found": device.os_version, "required": required})
+    if policy.get("require_owner") is True and not device.has_owner():
+        found.append({"device": device.device_id, "type": "missing_owner"})
+    limit = policy.get("max_down_interfaces")
+    if limit is not None:
+        down = device.interface_counts()["down"]
+        if down > limit:
+            found.append({"device": device.device_id, "type": "too_many_down",
+                          "down": down})
+    return found
+
+
+def build_report(site, devices, skipped, policy):
+    """Combine inventory and policy into the audit report dict."""
+    roles = {}
+    interfaces = {"up": 0, "down": 0, "other": 0}
+    violations = []
+    compliant = []
+    for device in devices:
+        roles[device.role] = roles.get(device.role, 0) + 1
+        for key, value in device.interface_counts().items():
+            interfaces[key] += value
+        problems = check_device(device, policy)
+        violations.extend(problems)
+        if not problems:
+            compliant.append(device.device_id)
+    return {
+        "site": site,
+        "total_devices": len(devices),
+        "skipped_devices": skipped,
+        "roles": roles,
+        "interfaces": interfaces,
+        "violations": violations,
+        "compliant": sorted(compliant),
+    }
