@@ -13,7 +13,7 @@ class AuditError(Exception):
 
 
 def parse_version(text):
-    """Turn a version string such as '15.10' into a tuple of ints (15, 10).
+    """Turn version string into tuple of ints).
 
     Raises ValueError if any part is not a whole number.
     """
@@ -25,20 +25,17 @@ def parse_version(text):
 
 
 def compare_versions(first, second):
-    """Compare two version tuples part by part.
-
-    Returns -1, 0 or 1. Missing trailing parts count as zero, so 9.1.0 == 9.1.
-    """
+    """Compare two version tuples part by part. """
     size = max(len(first), len(second))
     first = first + (0,) * (size - len(first))
     second = second + (0,) * (size - len(second))
     return (first > second) - (first < second)
 
-    class Device:
+class Device:
     """One network device from the inventory."""
 
     def __init__(self, device_id, role, os_version, owner, interfaces):
-        """Store the attributes; interfaces is a list of status strings."""
+        """Store the attributes. Interfaces is a list of status strings."""
         self.device_id = device_id
         self.role = role
         self.os_version = os_version
@@ -47,7 +44,7 @@ def compare_versions(first, second):
 
     @classmethod
     def from_element(cls, element):
-        """Build a Device from an XML <device> element."""
+        """Build a device from an xml device element."""
         owner_element = element.find("owner")
         owner = owner_element.text if owner_element is not None else None
         statuses = [i.get("status") for i in element.findall("interface")]
@@ -64,7 +61,7 @@ def compare_versions(first, second):
         return self.owner is not None and self.owner.strip() != ""
 
     def interface_counts(self):
-        """Count interfaces as up, down or other (any other status)."""
+        """Count interfaces as up, down or other."""
         counts = {"up": 0, "down": 0, "other": 0}
         for status in self.interfaces:
             key = status if status in ("up", "down") else "other"
@@ -73,9 +70,7 @@ def compare_versions(first, second):
 
 
 def load_inventory(path):
-    """Read the XML inventory.
-
-    Returns (site, devices, skipped). Devices without an id are skipped.
+    """Read the XML inventory. Returns (site, devices, skipped). Devices without an id are skipped.
     Raises AuditError if the file is missing or not valid XML.
     """
     try:
@@ -94,7 +89,7 @@ def load_inventory(path):
             devices.append(Device.from_element(element))
     return root.get("site"), devices, skipped
     
-    def load_policy(path):
+def load_policy(path):
     """Read and validate the YAML policy with yaml.safe_load.
 
     Returns a dict. An empty file gives an empty policy (all checks off).
@@ -123,7 +118,7 @@ def load_inventory(path):
         raise AuditError(f"{path}: max_down_interfaces must be a whole number")
     return data
 
-    def check_device(device, policy):
+def check_device(device, policy):
     """Return the list of violation dicts for one device."""
     found = []
     min_os = policy.get("min_os")
@@ -175,3 +170,29 @@ def build_report(site, devices, skipped, policy):
         "violations": violations,
         "compliant": sorted(compliant),
     }
+
+def main(argv):
+    """Command-line entry point. Returns the process exit code."""
+    if len(argv) != 3:
+        print("usage: python pa2.py DEVICES.xml POLICY.yaml", file=sys.stderr)
+        return 2
+    try:
+        site, devices, skipped = load_inventory(argv[1])
+        policy = load_policy(argv[2])
+        report = build_report(site, devices, skipped, policy)
+        try:
+            Path("audit.json").write_text(json.dumps(report, indent=2) + "\n",
+                                          encoding="utf-8")
+        except OSError as error:
+            raise AuditError(f"audit.json: cannot write report ({error})") from error
+    except AuditError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(f"Audited {report['total_devices']} devices "
+          f"({skipped} skipped): {len(report['violations'])} violations, "
+          f"{len(report['compliant'])} compliant. Report: audit.json")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
