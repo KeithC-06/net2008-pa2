@@ -33,3 +33,63 @@ def compare_versions(first, second):
     first = first + (0,) * (size - len(first))
     second = second + (0,) * (size - len(second))
     return (first > second) - (first < second)
+
+    class Device:
+    """One network device from the inventory."""
+
+    def __init__(self, device_id, role, os_version, owner, interfaces):
+        """Store the attributes; interfaces is a list of status strings."""
+        self.device_id = device_id
+        self.role = role
+        self.os_version = os_version
+        self.owner = owner
+        self.interfaces = interfaces
+
+    @classmethod
+    def from_element(cls, element):
+        """Build a Device from an XML <device> element."""
+        owner_element = element.find("owner")
+        owner = owner_element.text if owner_element is not None else None
+        statuses = [i.get("status") for i in element.findall("interface")]
+        return cls(
+            element.get("id"),
+            element.get("role", ""),
+            element.get("os", ""),
+            owner,
+            statuses,
+        )
+
+    def has_owner(self):
+        """Return True if the owner is present and not just spaces."""
+        return self.owner is not None and self.owner.strip() != ""
+
+    def interface_counts(self):
+        """Count interfaces as up, down or other (any other status)."""
+        counts = {"up": 0, "down": 0, "other": 0}
+        for status in self.interfaces:
+            key = status if status in ("up", "down") else "other"
+            counts[key] += 1
+        return counts
+
+
+def load_inventory(path):
+    """Read the XML inventory.
+
+    Returns (site, devices, skipped). Devices without an id are skipped.
+    Raises AuditError if the file is missing or not valid XML.
+    """
+    try:
+        with open(path, "rb") as handle:
+            root = ET.parse(handle).getroot()
+    except (OSError, ET.ParseError) as error:
+        raise AuditError(f"{path}: cannot read inventory ({error})") from error
+    if root.tag != "inventory":
+        raise AuditError(f"{path}: root element must be <inventory>")
+    devices = []
+    skipped = 0
+    for element in root.findall("device"):
+        if element.get("id") is None:
+            skipped += 1
+        else:
+            devices.append(Device.from_element(element))
+    return root.get("site"), devices, skipped
